@@ -139,7 +139,7 @@ npm run dev
 ```
 
 Ouvrir [http://localhost:3000](http://localhost:3000) dans **Chrome** ou **Edge**.
-🎥 Vidéo démo : https://drive.google.com/file/d/1tjOkkVGhsLBgKbbWN0UsJUgI3pprGgLu/view?usp=drive_link
+Vidéo démo : https://drive.google.com/file/d/1tjOkkVGhsLBgKbbWN0UsJUgI3pprGgLu/view?usp=drive_link
 
 ### Variables d'environnement
 
@@ -182,7 +182,7 @@ Chaque transition est claire. Les boutons sont désactivés pendant `thinking` e
 
 ---
 
-## 🛣️ Améliorations V2
+##  Améliorations V2
 
 - **STT** : Remplacer Web Speech API par Whisper via WebSocket pour une meilleure précision multilingue
 - **TTS** : ElevenLabs ou Azure Neural TTS pour une voix plus naturelle
@@ -192,7 +192,7 @@ Chaque transition est claire. Les boutons sont désactivés pendant `thinking` e
 
 ---
 
-## 📦 Dépendances principales
+##  Dépendances principales
 
 | Package | Version | Rôle |
 |---|---|---|
@@ -204,8 +204,3 @@ Chaque transition est claire. Les boutons sont désactivés pendant `thinking` e
 **Aucun SDK Groq** — l'API est compatible OpenAI, un simple `fetch` suffit.
 
 ---
-
-## 👤 Auteur
-
-Développé dans le cadre du test technique **Lead Dev IA – ProcessIQ**  
-Délai : 24h | Stack : Next.js 16 · React 19 · TypeScript · Groq · Web Speech API
