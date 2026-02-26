@@ -1,11 +1,11 @@
-# 🎤 SuperInterview — Simulateur d'entretien vocal par IA
+# SuperInterview — Simulateur d'entretien vocal par IA
 
 > **Test Technique Lead Dev IA – ProcessIQ**  
 > Pipeline complet **STT → LLM → TTS** en temps réel, conçu pour minimiser la latence perçue.
 
 ---
 
-## 🚀 Demo
+##  Demo
 
 ```
 Parole utilisateur → Web Speech API (STT) → Groq/Llama 3.3-70B (LLM streaming) → Web Speech Synthesis (TTS)
@@ -62,7 +62,7 @@ Le texte est nettoyé avant synthèse (suppression du markdown que Llama peut é
 
 ---
 
-## 🏗️ Architecture
+##  Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -89,7 +89,7 @@ Le texte est nettoyé avant synthèse (suppression du markdown que Llama peut é
 
 ---
 
-## 📁 Structure du projet
+## Structure du projet
 
 ```
 .
@@ -114,7 +114,7 @@ Le texte est nettoyé avant synthèse (suppression du markdown que Llama peut é
 
 ---
 
-## 🔧 Installation & Lancement
+##  Installation & Lancement
 
 ### Prérequis
 - Node.js 18+
@@ -139,6 +139,7 @@ npm run dev
 ```
 
 Ouvrir [http://localhost:3000](http://localhost:3000) dans **Chrome** ou **Edge**.
+🎥 Vidéo démo : https://drive.google.com/file/d/1tjOkkVGhsLBgKbbWN0UsJUgI3pprGgLu/view?usp=drive_link
 
 ### Variables d'environnement
 
@@ -151,7 +152,7 @@ GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxx
 
 ---
 
-## 🎯 Gestion de la latence — Décisions clés
+##  Gestion de la latence — Décisions clés
 
 ### 1. Silence Detection côté client
 Plutôt que d'attendre un bouton, un timer de **2 secondes** se réinitialise à chaque token de parole. Cela évite un round-trip "appuyer sur envoyer" et maintient une conversation naturelle.
