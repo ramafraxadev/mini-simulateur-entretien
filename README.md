@@ -1,11 +1,10 @@
-# SuperInterview — Simulateur d'entretien vocal par IA
+# SuperInterview — Simulateur d'entretien vocal
 
-> **Test Technique Lead Dev IA – ProcessIQ**  
-> Pipeline complet **STT → LLM → TTS** en temps réel, conçu pour minimiser la latence perçue.
+Pipeline **STT → LLM → TTS** conçu pour un test technique chez ProcessIQ. L'objectif principal : minimiser la latence perçue à chaque étape de la conversation.
 
 ---
 
-##  Demo
+## Demo
 
 ```
 Parole utilisateur → Web Speech API (STT) → Groq/Llama 3.3-70B (LLM streaming) → Web Speech Synthesis (TTS)
@@ -13,10 +12,11 @@ Parole utilisateur → Web Speech API (STT) → Groq/Llama 3.3-70B (LLM streamin
 
 ---
 
-## ⚙️ Stack & Choix Technologiques
+## Stack & Choix techniques
 
-### STT — Web Speech API (navigateur natif)
-**Pourquoi pas Whisper ou Deepgram ?**
+### STT — Web Speech API
+
+J'ai choisi la Web Speech API native plutôt que Whisper ou Deepgram pour une raison simple : zéro latence réseau. Tout se passe dans le navigateur, pas de round-trip pour la transcription.
 
 | Critère | Web Speech API | Whisper/Deepgram |
 |---|---|---|
@@ -25,18 +25,17 @@ Parole utilisateur → Web Speech API (STT) → Groq/Llama 3.3-70B (LLM streamin
 | Résultats interims | ✅ Oui | ❌ Non (ou WebSocket custom) |
 | Précision FR | Bonne (Chrome) | Excellente |
 
-La Web Speech API tourne entièrement dans le navigateur. Pas de round-trip réseau pour la transcription → latence quasi-nulle. Les **résultats interims** permettent d'afficher le transcript en temps réel pendant que l'utilisateur parle.
+Les résultats interims permettent d'afficher la transcription en direct pendant que l'utilisateur parle — ça donne un feedback immédiat et rend l'interface beaucoup plus vivante.
 
-**Détection de silence automatique** : un `setTimeout` de 2s se réinitialise à chaque token de parole reçu. À expiration, la réponse est soumise automatiquement — sans aucune intervention utilisateur. Le bouton manuel reste disponible en secours.
+Pour la **détection de fin de parole**, j'ai mis en place un `setTimeout` de 2 secondes qui se réinitialise à chaque nouveau token reçu. Quand le timer expire, la réponse est soumise automatiquement. Ça évite d'avoir à appuyer sur un bouton et rend la conversation plus naturelle. Le bouton manuel reste là en secours.
 
-> **Limitation connue** : non supporté sur Firefox. Chrome et Edge uniquement.
+> **Limitation** : Web Speech API ne fonctionne que sur Chrome et Edge, pas Firefox.
 
 ---
 
 ### LLM — Llama 3.3-70B via Groq
-**Pourquoi Groq plutôt qu'OpenAI ou Gemini ?**
 
-Groq utilise des **LPU** (Language Processing Units) au lieu de GPU, ce qui donne des vitesses de génération de **300–500 tokens/seconde** — soit 5–10× plus rapide qu'OpenAI GPT-4.
+Groq tourne sur des **LPU** (Language Processing Units) plutôt que des GPU classiques, ce qui se traduit par des vitesses de génération de 300 à 500 tokens/seconde — soit environ 5× plus rapide qu'OpenAI GPT-4. C'était le critère décisif pour ce projet.
 
 | Critère | Groq (Llama 3.3-70B) | OpenAI GPT-4o | Gemini Flash |
 |---|---|---|---|
@@ -45,24 +44,23 @@ Groq utilise des **LPU** (Language Processing Units) au lieu de GPU, ce qui donn
 | Qualité FR | Très bonne | Excellente | Bonne |
 | Streaming SSE | ✅ | ✅ | ✅ |
 
-L'API Groq est **compatible OpenAI** — drop-in replacement sans SDK spécial, juste un `fetch` vers `api.groq.com`.
+L'API Groq est compatible OpenAI, donc pas besoin de SDK spécifique — un simple `fetch` vers `api.groq.com` suffit.
 
-**Streaming token par token** : la réponse est affichée et envoyée au TTS au fur et à mesure (`enqueue`), sans attendre la fin de la génération.
-
----
-
-### TTS — Web Speech Synthesis API (navigateur natif)
-**Pourquoi pas ElevenLabs ou Azure TTS ?**
-
-Même logique que pour le STT : zéro latence réseau. La synthèse commence **dès que le dernier token arrive** (`flush` après `[DONE]`).
-
-Le texte est nettoyé avant synthèse (suppression du markdown que Llama peut émettre : `**bold**`, `*italic*`, `` `code` ``, `### heading`).
-
-> Pour une v2 production : ElevenLabs ou Azure Neural TTS pour une voix plus naturelle, avec streaming audio WebSocket pour maintenir la faible latence.
+Le streaming token par token permet d'afficher la réponse au fur et à mesure et surtout de démarrer le TTS sans attendre la fin de la génération.
 
 ---
 
-##  Architecture
+### TTS — Web Speech Synthesis API
+
+Même logique que pour le STT : en restant dans le navigateur, on évite toute latence réseau. La synthèse démarre dès que le dernier token arrive.
+
+Le texte est nettoyé avant synthèse pour retirer le markdown que Llama peut émettre (`**bold**`, `*italic*`, backticks, `### heading`).
+
+> Pour une v2 : ElevenLabs ou Azure Neural TTS pour une voix plus naturelle, avec streaming audio via WebSocket.
+
+---
+
+## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -94,7 +92,7 @@ Le texte est nettoyé avant synthèse (suppression du markdown que Llama peut é
 ```
 .
 ├── app/
-│   ├── page.tsx                  # Entry point
+│   ├── page.tsx
 │   ├── layout.tsx
 │   ├── globals.css               # CSS variables (thème dark)
 │   └── api/
@@ -103,7 +101,7 @@ Le texte est nettoyé avant synthèse (suppression du markdown que Llama peut é
 │
 ├── components/
 │   ├── VoiceInterview.tsx        # Composant principal (state machine)
-│   ├── MessageBubble.tsx         # Bulle de message user/IA
+│   ├── MessageBubble.tsx         # Bulles de message user/IA
 │   ├── Waveform.tsx              # Animation audio pendant TTS
 │   └── StatusBar.tsx             # Indicateur de phase
 │
@@ -114,9 +112,10 @@ Le texte est nettoyé avant synthèse (suppression du markdown que Llama peut é
 
 ---
 
-##  Installation & Lancement
+## Installation
 
 ### Prérequis
+
 - Node.js 18+
 - Clé API Groq gratuite : [console.groq.com](https://console.groq.com)
 
@@ -132,13 +131,14 @@ npm install
 
 # 3. Configurer la clé API
 cp .env.example .env.local
-# Éditer .env.local et renseigner GROQ_API_KEY=gsk_...
+# Éditer .env.local : GROQ_API_KEY=gsk_...
 
-# 4. Lancer en développement
+# 4. Lancer
 npm run dev
 ```
 
 Ouvrir [http://localhost:3000](http://localhost:3000) dans **Chrome** ou **Edge**.
+
 Vidéo démo : https://drive.google.com/file/d/1tjOkkVGhsLBgKbbWN0UsJUgI3pprGgLu/view?usp=drive_link
 
 ### Variables d'environnement
@@ -148,43 +148,37 @@ Vidéo démo : https://drive.google.com/file/d/1tjOkkVGhsLBgKbbWN0UsJUgI3pprGgLu
 GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxx
 ```
 
-> La clé n'est jamais exposée côté client. Elle est utilisée uniquement dans l'API Route Next.js côté serveur.
+La clé n'est jamais exposée côté client — elle passe uniquement par l'API Route Next.js côté serveur.
 
 ---
 
-##  Gestion de la latence — Décisions clés
+## Décisions techniques sur la latence
 
-### 1. Silence Detection côté client
-Plutôt que d'attendre un bouton, un timer de **2 secondes** se réinitialise à chaque token de parole. Cela évite un round-trip "appuyer sur envoyer" et maintient une conversation naturelle.
+**Détection de silence côté client** — plutôt qu'un bouton, le timer de 2s maintient une conversation fluide et naturelle.
 
-### 2. Streaming SSE bout en bout
-Le LLM envoie les tokens un par un via **Server-Sent Events**. Le composant React affiche chaque token immédiatement, et le TTS commence à parler **sans attendre la fin de la réponse complète**.
+**Streaming SSE bout en bout** — les tokens arrivent un par un, s'affichent immédiatement, et le TTS commence sans attendre la fin de la génération complète.
 
-### 3. Pas de réseau pour STT/TTS
-Les deux étapes les plus fréquentes (écoute et parole) fonctionnent **hors ligne** dans le navigateur. Seul le LLM nécessite un appel réseau.
+**STT et TTS sans réseau** — les deux étapes les plus fréquentes tournent entièrement dans le navigateur. Seul le LLM fait un appel réseau.
 
-### 4. `max_tokens: 300` sur le LLM
-Le system prompt impose des réponses courtes (2–4 phrases). Moins de tokens = fin de génération plus rapide = TTS démarre plus tôt.
+**`max_tokens: 300`** — le system prompt force des réponses courtes (2 à 4 phrases). Moins de tokens générés = TTS qui démarre plus tôt.
 
-### 5. Machine d'état explicite
+**Machine d'état explicite** :
 ```
 idle → listening → thinking → speaking → idle
 ```
-Chaque transition est claire. Les boutons sont désactivés pendant `thinking` et tant que `tts.isSpeaking === true` pour éviter les soumissions parasites.
+Les boutons sont désactivés pendant `thinking` et tant que `tts.isSpeaking === true` pour éviter les soumissions en double.
 
 ---
 
-## 🔒 Sécurité
+## Sécurité
 
-- La clé API Groq est stockée **uniquement** dans `.env.local` (côté serveur)
-- Aucune clé n'est jamais envoyée au navigateur
-- L'API Route Next.js fait office de proxy sécurisé
+La clé API Groq est stockée uniquement dans `.env.local` côté serveur. L'API Route Next.js sert de proxy — rien ne transite par le navigateur.
 
 ---
 
-##  Améliorations V2
+## Pistes pour une v2
 
-- **STT** : Remplacer Web Speech API par Whisper via WebSocket pour une meilleure précision multilingue
+- **STT** : Whisper via WebSocket pour une meilleure précision multilingue
 - **TTS** : ElevenLabs ou Azure Neural TTS pour une voix plus naturelle
 - **LLM** : Prompt configurable selon le poste visé
 - **Auth** : Protéger l'API Route avec un token utilisateur
@@ -192,7 +186,7 @@ Chaque transition est claire. Les boutons sont désactivés pendant `thinking` e
 
 ---
 
-##  Dépendances principales
+## Dépendances principales
 
 | Package | Version | Rôle |
 |---|---|---|
@@ -200,7 +194,4 @@ Chaque transition est claire. Les boutons sont désactivés pendant `thinking` e
 | `react` | 19.2.3 | UI |
 | `typescript` | ^5 | Typage statique |
 
-**Aucune dépendance externe pour STT/TTS** — Web APIs natives du navigateur.  
-**Aucun SDK Groq** — l'API est compatible OpenAI, un simple `fetch` suffit.
-
----
+Pas de dépendance externe pour STT/TTS (Web APIs natives), pas de SDK Groq (simple `fetch`).
