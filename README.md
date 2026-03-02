@@ -1,6 +1,6 @@
 # SuperInterview
 
-Simulateur d'entretien vocal construit en 24h pour le test technique ProcessIQ. Tu parles, l'IA répond à voix haute, pas besoin de toucher le clavier.
+Simulateur d'entretien vocal construit en  pour le test technique ProcessIQ. Tu parles, l'IA répond à voix haute, pas besoin de toucher le clavier.
 
 Pipeline : Web Speech API → Groq / Llama 3.3-70B → Web Speech Synthesis
 
