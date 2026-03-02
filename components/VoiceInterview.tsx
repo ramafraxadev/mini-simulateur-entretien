@@ -13,102 +13,105 @@ export interface Message {
   timestamp: Date
 }
 
-type InterviewPhase = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
+type Phase = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
 
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60).toString().padStart(2, '0')
-  const s = (seconds % 60).toString().padStart(2, '0')
+function formatDuration(secs: number): string {
+  const m = Math.floor(secs / 60).toString().padStart(2, '0')
+  const s = (secs % 60).toString().padStart(2, '0')
   return `${m}:${s}`
 }
 
 export function VoiceInterview() {
   const [messages, setMessages] = useState<Message[]>([])
-  const [phase, setPhase] = useState<InterviewPhase>('idle')
-  const [streamingText, setStreamingText] = useState<string>('')
-  const [errorMessage, setErrorMessage] = useState<string>('')
-  const [isStarted, setIsStarted] = useState(false)
+  const [phase, setPhase] = useState<Phase>('idle')
+  const [streamingText, setStreamingText] = useState('')
+  const [errorMsg, setErrorMsg] = useState('')
+  const [started, setStarted] = useState(false)
   const [duration, setDuration] = useState(0)
 
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const abortControllerRef = useRef<AbortController | null>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const tts = useTTS('fr-FR')
 
+  // repasse en idle une fois que le tts a fini
   useEffect(() => {
-    if (phase === 'speaking' && !tts.isSpeaking) {
-      setPhase('idle')
-    }
+    if (phase === 'speaking' && !tts.isSpeaking) setPhase('idle')
   }, [tts.isSpeaking, phase])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText])
 
   useEffect(() => {
-    if (isStarted) {
-      setDuration(0)
-      timerRef.current = setInterval(() => setDuration(prev => prev + 1), 1000)
-    }
+    if (!started) return
+    setDuration(0)
+    timerRef.current = setInterval(() => setDuration(d => d + 1), 1000)
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [isStarted])
+  }, [started])
 
-  const handleFinalTranscript = useCallback(async (transcript: string) => {
+  const handleTranscript = useCallback(async (transcript: string) => {
     if (!transcript.trim()) return
 
-    const userMessage: Message = {
+    const userMsg: Message = {
       id: crypto.randomUUID(),
       role: 'user',
       content: transcript,
       timestamp: new Date(),
     }
-    setMessages(prev => [...prev, userMessage])
+
+    setMessages(prev => [...prev, userMsg])
     setPhase('thinking')
     setStreamingText('')
 
-    const history = [...messages, userMessage].map(m => ({
-      role: m.role,
-      content: m.content,
-    }))
+    // on inclut le nouveau message dans l'historique envoyé
+    const history = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
 
-    abortControllerRef.current?.abort()
-    abortControllerRef.current = new AbortController()
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
 
     try {
-      const response = await fetch('/api/chat', {
+      const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: history }),
-        signal: abortControllerRef.current.signal,
+        signal: abortRef.current.signal,
       })
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || `HTTP ${response.status}`)
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || `HTTP ${res.status}`)
       }
 
-      const reader = response.body!.getReader()
-      const decoder = new TextDecoder()
-      let accumulatedText = ''
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder('utf-8')
+      let text = ''
+      let buf = '' // lignes SSE potentiellement incomplètes
+
       setPhase('speaking')
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n')
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
 
         for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const data = line.slice(6).trim()
-          if (data === '[DONE]') { tts.flush(); break }
+          const t = line.trim()
+          if (!t.startsWith('data: ')) continue
+
+          const data = t.slice(6).trim()
+          if (data === '[DONE]') { tts.flush(); continue }
+
           try {
             const parsed = JSON.parse(data)
             if (parsed.error) throw new Error(parsed.error)
             if (parsed.token) {
-              accumulatedText += parsed.token
-              setStreamingText(accumulatedText)
+              text += parsed.token
+              setStreamingText(text)
               tts.enqueue(parsed.token)
             }
           } catch (e) {
@@ -118,72 +121,66 @@ export function VoiceInterview() {
         }
       }
 
-      if (accumulatedText.trim()) {
+      if (text.trim()) {
         setMessages(prev => [...prev, {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: accumulatedText.trim(),
+          content: text.trim(),
           timestamp: new Date(),
         }])
         setStreamingText('')
       }
 
-    } catch (error: unknown) {
-      if (error instanceof Error && error.name === 'AbortError') return
-      const message = error instanceof Error ? error.message : 'Erreur de connexion'
-      setErrorMessage(message)
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') return
+      setErrorMsg(err instanceof Error ? err.message : 'Erreur de connexion')
       setPhase('error')
       setTimeout(() => setPhase('idle'), 4000)
     }
   }, [messages, tts])
 
-  const stt = useSTT('fr-FR', handleFinalTranscript)
+  const stt = useSTT('fr-FR', handleTranscript)
 
   const startInterview = useCallback(async () => {
     tts.unlock()
-    setIsStarted(true)
+    setStarted(true)
     setPhase('thinking')
-    await handleFinalTranscript('[DÉBUT DE L\'ENTRETIEN - présente-toi et pose la première question]')
-  }, [handleFinalTranscript, tts])
+    await handleTranscript("[DÉBUT DE L'ENTRETIEN - présente-toi et pose la première question]")
+  }, [handleTranscript, tts])
 
   const handleMicToggle = useCallback(() => {
     if (phase === 'listening') {
       stt.stop()
     } else if (phase === 'idle') {
-      // Uniquement depuis idle : l'IA a fini de parler
       setPhase('listening')
       stt.start()
     }
-    // phase === 'speaking' | 'thinking' > bouton disabled, rien ne se passe
   }, [phase, stt])
 
-  const resetInterview = useCallback(() => {
-    abortControllerRef.current?.abort()
+  const reset = useCallback(() => {
+    abortRef.current?.abort()
     if (timerRef.current) clearInterval(timerRef.current)
     tts.stop()
     stt.stop()
     setMessages([])
     setPhase('idle')
     setStreamingText('')
-    setIsStarted(false)
-    setErrorMessage('')
+    setStarted(false)
+    setErrorMsg('')
     setDuration(0)
   }, [stt, tts])
 
-  //  Règles de désactivation
-  // Micro : bloqué pendant thinking ET pendant que l'IA parle 
   const micDisabled = phase === 'thinking' || tts.isSpeaking
-  // "Envoyer maintenant" : bloqué pendant que l'IA parle
   const sendDisabled = tts.isSpeaking
 
-  if (!isStarted) {
+  if (!started) {
     return <LandingScreen onStart={startInterview} sttSupported={stt.isSupported} />
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg)' }}>
 
-      {/* Header */}
+      {/* header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div style={{
@@ -199,24 +196,26 @@ export function VoiceInterview() {
             color: duration >= 1800 ? 'var(--error)' : duration >= 900 ? '#f59e0b' : 'var(--text-muted)',
             fontSize: '13px',
             fontFamily: 'var(--font-mono)',
-            letterSpacing: '0.05em',
           }}>
             {formatDuration(duration)}
           </span>
         </div>
 
-        <button onClick={resetInterview} style={{ color: 'var(--error)', background: 'transparent', border: '1px solid var(--error)', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>
-          X Terminer
+        <button
+          onClick={reset}
+          style={{ color: 'var(--error)', background: 'transparent', border: '1px solid var(--error)', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}
+        >
+          Terminer
         </button>
       </div>
 
-      {/* Messages */}
+      {/* messages */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
         <div style={{ maxWidth: '640px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {messages.map(msg => (
-            <MessageBubble key={msg.id} message={msg} />
-          ))}
 
+          {messages.map(msg => <MessageBubble key={msg.id} message={msg} />)}
+
+          {/* reponse ia en cours de streaming */}
           {streamingText && (
             <div style={{ background: 'var(--ai-bubble)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: '16px', padding: '16px 20px', maxWidth: '85%' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
@@ -229,40 +228,39 @@ export function VoiceInterview() {
 
           {phase === 'thinking' && !streamingText && (
             <div style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '16px', padding: '16px 20px', width: 'fit-content' }}>
-              <span style={{ color: 'var(--text-muted)', fontSize: '13px', fontFamily: 'var(--font-mono)' }}>IA réfléchit...</span>
+              <span style={{ color: 'var(--text-muted)', fontSize: '13px', fontFamily: 'var(--font-mono)' }}>IA reflechit...</span>
             </div>
           )}
 
           {phase === 'error' && (
             <div style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: '12px', padding: '12px 16px', color: 'var(--error)', fontSize: '14px' }}>
-              ⚠ {errorMessage}
+              {errorMsg}
             </div>
           )}
 
-          <div ref={messagesEndRef} />
+          <div ref={bottomRef} />
         </div>
       </div>
 
-      {/* Contrôles */}
+      {/* zone de controle */}
       <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)', padding: '20px 24px' }}>
         <div style={{ maxWidth: '640px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
 
-          {/* Transcript en direct */}
+          {/* transcript live */}
           {phase === 'listening' && stt.transcript && (
             <div style={{ width: '100%', background: 'var(--user-bubble)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px 16px', fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-secondary)', boxSizing: 'border-box' }}>
               <div style={{ color: 'var(--accent)', fontSize: '10px', textTransform: 'uppercase', marginBottom: '4px' }}>
-                ... En écoute — envoi auto après 2s de silence
+                en ecoute — envoi auto apres 2s de silence
               </div>
               {stt.transcript}
             </div>
           )}
 
-          {/* Bouton "Envoyer maintenant" — désactivé si l'IA parle encore */}
+          {/* bouton envoyer */}
           {phase === 'listening' && (
             <button
               onClick={handleMicToggle}
               disabled={sendDisabled}
-              title={sendDisabled ? "Attendez que l'IA finisse de parler" : undefined}
               style={{
                 width: '100%',
                 padding: '16px',
@@ -279,20 +277,15 @@ export function VoiceInterview() {
                 transition: 'all 0.2s',
               }}
             >
-              {sendDisabled ? '.. IA en cours…' : ' Envoyer maintenant'}
+              {sendDisabled ? 'IA en cours...' : 'Envoyer'}
             </button>
           )}
 
-          {/* Bouton micro — désactivé si thinking OU si l'IA parle */}
+          {/* bouton micro */}
           {phase !== 'listening' && (
             <button
               onClick={handleMicToggle}
               disabled={micDisabled}
-              title={
-                phase === 'thinking'  ? "L'IA réfléchit…" :
-                tts.isSpeaking        ? "Attendez que l'IA finisse de parler" :
-                'Parler'
-              }
               style={{
                 width: '64px',
                 height: '64px',
@@ -316,18 +309,12 @@ export function VoiceInterview() {
             </button>
           )}
 
-          {/* Instructions contextuelles */}
+          {/* indication contexte */}
           <p style={{ color: 'var(--text-muted)', fontSize: '12px', fontFamily: 'var(--font-mono)', textAlign: 'center', margin: 0 }}>
-            {phase === 'idle'      && ' Cliquez le micro pour parler'}
-            {phase === 'listening' && (sendDisabled
-              ? ' Attendez que l\'IA finisse de parler…'
-              : ' Envoi automatique après 2s de silence — ou cliquez "Envoyer"'
-            )}
-            {phase === 'thinking'  && ' L\'IA réfléchit…'}
-            {phase === 'speaking'  && (tts.isSpeaking
-              ? ' L\'IA parle — micro disponible dès qu\'elle a fini'
-              : ' Cliquez le micro pour parler'
-            )}
+            {phase === 'idle'      && 'cliquez le micro pour parler'}
+            {phase === 'listening' && (sendDisabled ? 'attendez que l\'IA finisse...' : 'envoi auto apres 2s — ou cliquez Envoyer')}
+            {phase === 'thinking'  && 'l\'IA reflechit...'}
+            {phase === 'speaking'  && (tts.isSpeaking ? 'l\'IA parle — micro disponible apres' : 'cliquez le micro pour parler')}
           </p>
 
         </div>
@@ -336,7 +323,6 @@ export function VoiceInterview() {
   )
 }
 
-// Landing Screen
 function LandingScreen({ onStart, sttSupported }: { onStart: () => void; sttSupported: boolean }) {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', background: 'var(--bg)' }}>
@@ -356,15 +342,17 @@ function LandingScreen({ onStart, sttSupported }: { onStart: () => void; sttSupp
         <h1 style={{ fontSize: '48px', fontWeight: 'bold', marginBottom: '12px', fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
           Super<span style={{ color: 'var(--accent)' }}>Interview</span>
         </h1>
+
         <p style={{ color: 'var(--text-secondary)', marginBottom: '8px', fontFamily: 'var(--font-display)' }}>
           Simulateur d'entretien vocal par IA
         </p>
+
         <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '40px', fontFamily: 'var(--font-mono)' }}>
-          STT + détection silence  Llama 3.3 (Groq) + TTS · 100% gratuit
+          STT + silence detection / Llama 3.3 via Groq / TTS
         </p>
 
         <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '40px', flexWrap: 'wrap' }}>
-          {['Web Speech API', 'Silence Detection', 'Llama 3.3 70B', 'Groq (gratuit)'].map(label => (
+          {['Web Speech API', 'Silence Detection', 'Llama 3.3 70B', 'Groq'].map(label => (
             <span key={label} style={{ padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontFamily: 'var(--font-mono)', background: 'var(--accent-dim)', color: 'var(--accent)', border: '1px solid rgba(74,222,128,0.2)' }}>
               {label}
             </span>
@@ -373,16 +361,19 @@ function LandingScreen({ onStart, sttSupported }: { onStart: () => void; sttSupp
 
         {!sttSupported && (
           <div style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: '12px', padding: '12px 16px', color: 'var(--error)', fontSize: '12px', marginBottom: '16px', fontFamily: 'var(--font-mono)' }}>
-             Utilisez Chrome ou Edge pour la reconnaissance vocale.
+            Chrome ou Edge requis pour la reconnaissance vocale
           </div>
         )}
 
-        <button onClick={onStart} style={{ width: '100%', padding: '16px', background: 'var(--accent)', color: '#0a0c0f', border: 'none', borderRadius: '16px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'var(--font-display)', boxShadow: '0 0 30px rgba(74,222,128,0.3)' }}>
-          Démarrer l'entretien 
+        <button
+          onClick={onStart}
+          style={{ width: '100%', padding: '16px', background: 'var(--accent)', color: '#0a0c0f', border: 'none', borderRadius: '16px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'var(--font-display)', boxShadow: '0 0 30px rgba(74,222,128,0.3)' }}
+        >
+          Demarrer l'entretien
         </button>
 
         <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '16px', fontFamily: 'var(--font-mono)' }}>
-          Poste Lead Dev IA · EdTech · Freelance
+          Lead Dev IA / EdTech / Freelance
         </p>
       </div>
     </div>

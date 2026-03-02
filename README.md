@@ -1,210 +1,148 @@
-# 🎤 SuperInterview — Simulateur d'entretien vocal par IA
+# SuperInterview — Simulateur d'entretien vocal IA
 
-> **Test Technique Lead Dev IA – ProcessIQ**  
-> Pipeline complet **STT → LLM → TTS** en temps réel, conçu pour minimiser la latence perçue.
+Un mini-simulateur d'entretien d'embauche vocal construit en 24h pour le test technique ProcessIQ. Le candidat parle, l'IA répond vocalement, la conversation se déroule naturellement sans toucher le clavier.
 
----
+Pipeline : **Web Speech API (STT) → Groq / Llama 3.3-70B (LLM) → Web Speech Synthesis (TTS)**
 
-## 🚀 Demo
-
-```
-Parole utilisateur → Web Speech API (STT) → Groq/Llama 3.3-70B (LLM streaming) → Web Speech Synthesis (TTS)
-```
+Démo vidéo : https://drive.google.com/file/d/1tjOkkVGhsLBgKbbWN0UsJUgI3pprGgLu/view?usp=drive_link
 
 ---
 
-## ⚙️ Stack & Choix Technologiques
+## Comment tester l'application
 
-### STT — Web Speech API (navigateur natif)
-**Pourquoi pas Whisper ou Deepgram ?**
+> Lis cette section avant de lancer quoi que ce soit.
 
-| Critère | Web Speech API | Whisper/Deepgram |
-|---|---|---|
-| Latence | **0 ms** (local) | 300–800 ms (réseau) |
-| Coût | Gratuit | Payant |
-| Résultats interims | ✅ Oui | ❌ Non (ou WebSocket custom) |
-| Précision FR | Bonne (Chrome) | Excellente |
+### Ce qu'il te faut
 
-La Web Speech API tourne entièrement dans le navigateur. Pas de round-trip réseau pour la transcription → latence quasi-nulle. Les **résultats interims** permettent d'afficher le transcript en temps réel pendant que l'utilisateur parle.
+- **Node.js 18 ou plus** — vérifie avec `node -v`
+- **Chrome ou Edge** — obligatoire pour la reconnaissance vocale (Firefox ne supporte pas la Web Speech API)
+- **Un micro qui fonctionne** — vérifie qu'il est bien sélectionné dans les paramètres de ton navigateur
+- **Une clé API Groq gratuite** — 2 minutes pour en créer une sur [console.groq.com](https://console.groq.com), aucune carte bancaire requise
 
-**Détection de silence automatique** : un `setTimeout` de 2s se réinitialise à chaque token de parole reçu. À expiration, la réponse est soumise automatiquement — sans aucune intervention utilisateur. Le bouton manuel reste disponible en secours.
+### Étapes d'installation
 
-> **Limitation connue** : non supporté sur Firefox. Chrome et Edge uniquement.
+**1. Récupérer le projet**
 
----
-
-### LLM — Llama 3.3-70B via Groq
-**Pourquoi Groq plutôt qu'OpenAI ou Gemini ?**
-
-Groq utilise des **LPU** (Language Processing Units) au lieu de GPU, ce qui donne des vitesses de génération de **300–500 tokens/seconde** — soit 5–10× plus rapide qu'OpenAI GPT-4.
-
-| Critère | Groq (Llama 3.3-70B) | OpenAI GPT-4o | Gemini Flash |
-|---|---|---|---|
-| Vitesse tokens/s | **~400** | ~80 | ~150 |
-| Coût | **Gratuit** (tier free) | ~$5/1M tokens | ~$0.10/1M |
-| Qualité FR | Très bonne | Excellente | Bonne |
-| Streaming SSE | ✅ | ✅ | ✅ |
-
-L'API Groq est **compatible OpenAI** — drop-in replacement sans SDK spécial, juste un `fetch` vers `api.groq.com`.
-
-**Streaming token par token** : la réponse est affichée et envoyée au TTS au fur et à mesure (`enqueue`), sans attendre la fin de la génération.
-
----
-
-### TTS — Web Speech Synthesis API (navigateur natif)
-**Pourquoi pas ElevenLabs ou Azure TTS ?**
-
-Même logique que pour le STT : zéro latence réseau. La synthèse commence **dès que le dernier token arrive** (`flush` après `[DONE]`).
-
-Le texte est nettoyé avant synthèse (suppression du markdown que Llama peut émettre : `**bold**`, `*italic*`, `` `code` ``, `### heading`).
-
-> Pour une v2 production : ElevenLabs ou Azure Neural TTS pour une voix plus naturelle, avec streaming audio WebSocket pour maintenir la faible latence.
-
----
-
-## 🏗️ Architecture
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                    Browser (Next.js)                      │
-│                                                           │
-│  useSTT ──────────────────────────────────────────────►  │
-│  (Web Speech API)   transcript                            │
-│       │                                                   │
-│       ▼                                                   │
-│  VoiceInterview.tsx                                       │
-│  (state machine: idle → listening → thinking → speaking)  │
-│       │                                                   │
-│       ▼ fetch SSE                                         │
-├───────────────────────────────────────────────────────────┤
-│                  Next.js API Route                        │
-│  /api/chat ──► Groq API (Llama 3.3-70B, streaming)       │
-│                token by token → SSE → browser             │
-├───────────────────────────────────────────────────────────┤
-│                    Browser                                │
-│  useTTS ◄─── tokens (enqueue) ─── flush on [DONE]        │
-│  (Web Speech Synthesis API)                               │
-└──────────────────────────────────────────────────────────┘
+```bash
+git clone https://github.com/ton-username/superinterview.git
+cd superinterview
 ```
 
+**2. Installer les dépendances**
+
+```bash
+npm install
+```
+
+**3. Créer le fichier de config**
+
+```bash
+cp .env.example .env.local
+```
+
+Ouvre `.env.local` et colle ta clé Groq :
+
+```
+GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxx
+```
+
+La clé reste côté serveur — elle ne transite jamais dans le navigateur.
+
+**4. Lancer le serveur de développement**
+
+```bash
+npm run dev
+```
+
+**5. Ouvrir l'application**
+
+Va sur [http://localhost:3000](http://localhost:3000) **dans Chrome ou Edge**.
+
 ---
 
-## 📁 Structure du projet
+### Comment se déroule un test
+
+1. La page d'accueil s'affiche avec un bouton "Démarrer l'entretien →"
+2. Clique dessus — le navigateur va te demander l'autorisation d'accès au micro, accepte
+3. L'IA se présente et pose une première question (voix synthétique)
+4. Attends qu'elle ait fini de parler, puis clique le bouton micro rond en bas
+5. Parle normalement — tu vois ta transcription s'afficher en temps réel
+6. Arrête de parler : après 2 secondes de silence, ta réponse est envoyée automatiquement
+7. Tu peux aussi cliquer "Envoyer maintenant" si tu préfères ne pas attendre
+8. L'IA réfléchit (indicateur visible), puis répond vocalement
+9. Le cycle recommence jusqu'à ce que tu cliques "✕ Terminer"
+
+### Ce qu'il faut savoir avant de tester
+
+- Le micro et les boutons sont **volontairement désactivés pendant que l'IA parle** — c'est fait exprès pour éviter les doubles soumissions
+- La durée de l'entretien s'affiche en haut à gauche et change de couleur passé 15 minutes
+- Si la voix sonne robotique, c'est normal — c'est la Web Speech Synthesis native du navigateur. Une v2 utiliserait ElevenLabs pour quelque chose de plus naturel
+- Sur certaines machines, Chrome peut demander la permission micro à chaque rechargement de page
+
+---
+
+## Pourquoi ces choix techniques
+
+### Groq plutôt qu'OpenAI
+
+La contrainte principale du test était la latence. Groq tourne sur des puces dédiées au LLM (LPU) et génère du texte à environ 400 tokens par seconde, contre 80 pour GPT-4o. Ça change vraiment l'expérience — la réponse commence à apparaître quasi instantanément après que l'utilisateur a fini de parler.
+
+C'est aussi gratuit sur le tier free, ce qui simplifiait le déploiement pour un prototype.
+
+### Web Speech API plutôt que Whisper
+
+Pour la transcription, le choix était soit une API cloud (Whisper, Deepgram) soit la Web Speech API native du navigateur. J'ai choisi le natif principalement pour la latence : 0ms de réseau versus 300 à 800ms pour un aller-retour vers une API externe.
+
+La contrepartie c'est la précision — Whisper est meilleur, surtout sur les accents ou le vocabulaire technique. Pour une v2 en production, un streaming WebSocket vers Whisper serait le bon compromis.
+
+### Détection de silence plutôt qu'un bouton
+
+Forcer l'utilisateur à appuyer sur un bouton après chaque réponse casse le rythme d'une conversation. J'ai mis un timer de 2 secondes qui se réinitialise à chaque mot détecté — quand le silence dure, la réponse part automatiquement. Le bouton manuel reste disponible pour ceux qui préfèrent contrôler.
+
+---
+
+## Structure du projet
 
 ```
 .
 ├── app/
-│   ├── page.tsx                  # Entry point
+│   ├── page.tsx                  # point d'entrée
 │   ├── layout.tsx
-│   ├── globals.css               # CSS variables (thème dark)
-│   └── api/
-│       └── chat/
-│           └── route.ts          # POST /api/chat — SSE stream Groq
+│   ├── globals.css               # variables CSS, thème dark
+│   └── api/chat/route.ts         # API Route Next.js → Groq (streaming SSE)
 │
 ├── components/
-│   ├── VoiceInterview.tsx        # Composant principal (state machine)
-│   ├── MessageBubble.tsx         # Bulle de message user/IA
-│   ├── Waveform.tsx              # Animation audio pendant TTS
-│   └── StatusBar.tsx             # Indicateur de phase
+│   ├── VoiceInterview.tsx        # composant principal, gère toute la logique
+│   ├── MessageBubble.tsx         # bulle de message user ou IA
+│   └── Waveform.tsx              # animation sonore pendant la synthèse vocale
 │
 └── lib/
-    ├── useSTT.ts                 # Hook STT + détection silence 2s
-    └── useTTS.ts                 # Hook TTS + buffer/flush streaming
+    ├── useSTT.ts                 # hook Speech-to-Text + détection silence 2s
+    └── useTTS.ts                 # hook Text-to-Speech + buffer pour le streaming
 ```
 
 ---
 
-## 🔧 Installation & Lancement
+## Ce qui pourrait être amélioré
 
-### Prérequis
-- Node.js 18+
-- Clé API Groq gratuite : [console.groq.com](https://console.groq.com)
+Je liste honnêtement ce que je ferais différemment avec plus de temps :
 
-### Setup
+- **Voix plus naturelle** — la synthèse native du navigateur fait le travail mais ElevenLabs ou Azure Neural TTS rendraient l'expérience beaucoup plus agréable
+- **Meilleure précision STT** — Whisper via WebSocket streaming pour les accents et le vocabulaire technique
+- **Prompt configurable** — en l'état le persona du recruteur est codé en dur dans `route.ts`, il faudrait une interface pour le modifier
+- **Pas d'authentification** — n'importe qui avec le lien peut utiliser ta clé Groq. Pour une mise en production il faudrait protéger l'API Route
+- **Pas de sauvegarde** — les entretiens disparaissent au rechargement. Un export PDF ou un historique seraient utiles
 
-```bash
-# 1. Cloner le repo
-git clone https://github.com/ton-username/superinterview.git
-cd superinterview
+---
 
-# 2. Installer les dépendances
-npm install
+## Dépendances
 
-# 3. Configurer la clé API
-cp .env.example .env.local
-# Éditer .env.local et renseigner GROQ_API_KEY=gsk_...
-
-# 4. Lancer en développement
-npm run dev
+```json
+{
+  "next": "16.1.6",
+  "react": "19.2.3",
+  "typescript": "^5"
+}
 ```
 
-Ouvrir [http://localhost:3000](http://localhost:3000) dans **Chrome** ou **Edge**.
-
-### Variables d'environnement
-
-```bash
-# .env.local
-GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxx
-```
-
-> La clé n'est jamais exposée côté client. Elle est utilisée uniquement dans l'API Route Next.js côté serveur.
-
----
-
-## 🎯 Gestion de la latence — Décisions clés
-
-### 1. Silence Detection côté client
-Plutôt que d'attendre un bouton, un timer de **2 secondes** se réinitialise à chaque token de parole. Cela évite un round-trip "appuyer sur envoyer" et maintient une conversation naturelle.
-
-### 2. Streaming SSE bout en bout
-Le LLM envoie les tokens un par un via **Server-Sent Events**. Le composant React affiche chaque token immédiatement, et le TTS commence à parler **sans attendre la fin de la réponse complète**.
-
-### 3. Pas de réseau pour STT/TTS
-Les deux étapes les plus fréquentes (écoute et parole) fonctionnent **hors ligne** dans le navigateur. Seul le LLM nécessite un appel réseau.
-
-### 4. `max_tokens: 300` sur le LLM
-Le system prompt impose des réponses courtes (2–4 phrases). Moins de tokens = fin de génération plus rapide = TTS démarre plus tôt.
-
-### 5. Machine d'état explicite
-```
-idle → listening → thinking → speaking → idle
-```
-Chaque transition est claire. Les boutons sont désactivés pendant `thinking` et tant que `tts.isSpeaking === true` pour éviter les soumissions parasites.
-
----
-
-## 🔒 Sécurité
-
-- La clé API Groq est stockée **uniquement** dans `.env.local` (côté serveur)
-- Aucune clé n'est jamais envoyée au navigateur
-- L'API Route Next.js fait office de proxy sécurisé
-
----
-
-## 🛣️ Améliorations V2
-
-- **STT** : Remplacer Web Speech API par Whisper via WebSocket pour une meilleure précision multilingue
-- **TTS** : ElevenLabs ou Azure Neural TTS pour une voix plus naturelle
-- **LLM** : Prompt configurable selon le poste visé
-- **Auth** : Protéger l'API Route avec un token utilisateur
-- **Analytics** : Durée d'entretien, nombre d'échanges, score automatique
-
----
-
-## 📦 Dépendances principales
-
-| Package | Version | Rôle |
-|---|---|---|
-| `next` | 16.1.6 | Framework React fullstack |
-| `react` | 19.2.3 | UI |
-| `typescript` | ^5 | Typage statique |
-
-**Aucune dépendance externe pour STT/TTS** — Web APIs natives du navigateur.  
-**Aucun SDK Groq** — l'API est compatible OpenAI, un simple `fetch` suffit.
-
----
-
-## 👤 Auteur
-
-Développé dans le cadre du test technique **Lead Dev IA – ProcessIQ**  
-Délai : 24h | Stack : Next.js 16 · React 19 · TypeScript · Groq · Web Speech API
+Aucune lib externe pour STT/TTS — ce sont des APIs Web natives. Aucun SDK Groq — l'API est compatible OpenAI donc un `fetch` standard suffit.

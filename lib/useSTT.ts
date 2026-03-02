@@ -20,132 +20,117 @@ declare global {
     start(): void
     stop(): void
     onresult: ((event: SpeechRecognitionEvent) => void) | null
-    onerror: ((event: SpeechRecognitionErrorEventCompat) => void) | null
+    onerror: ((event: SpeechRecognitionErrorEvent) => void) | null
     onend: (() => void) | null
   }
   interface SpeechRecognitionEvent extends Event {
     resultIndex: number
     results: SpeechRecognitionResultList
   }
-  interface SpeechRecognitionErrorEventCompat extends Event {
+  interface SpeechRecognitionErrorEvent extends Event {
     error: string
     message: string
   }
 }
 
 export function useSTT(
-  lang: string = 'fr-FR',
-  onFinalTranscript?: (transcript: string) => void
+  lang = 'fr-FR',
+  onDone?: (transcript: string) => void
 ): STTHook {
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
-  const finalTranscriptRef = useRef<string>('')
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)  
-  const manualStopRef = useRef<boolean>(false)                                 
-  const [transcript, setTranscript] = useState<string>('')
-  const [isListening, setIsListening] = useState<boolean>(false)
-  const [isSupported, setIsSupported] = useState<boolean>(false)
+  const recogRef = useRef<SpeechRecognition | null>(null)
+  const finalRef = useRef('')
+  const silenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const manualStop = useRef(false)
+
+  const [transcript, setTranscript] = useState('')
+  const [isListening, setIsListening] = useState(false)
+  const [isSupported, setIsSupported] = useState(false)
 
   useEffect(() => {
     setIsSupported('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
   }, [])
 
-  // Helper - vide le timer silence
-  const clearSilenceTimer = useCallback(() => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current)
-      silenceTimerRef.current = null
+  const clearTimer = useCallback(() => {
+    if (silenceTimer.current) {
+      clearTimeout(silenceTimer.current)
+      silenceTimer.current = null
     }
   }, [])
 
-  // Helper - soumet le transcript accumulé
-  const submitTranscript = useCallback(() => {
-    clearSilenceTimer()
-    manualStopRef.current = true        
-    recognitionRef.current?.stop()
+  const submit = useCallback(() => {
+    clearTimer()
+    manualStop.current = true
+    recogRef.current?.stop()
     setIsListening(false)
-    const result = finalTranscriptRef.current.trim()
-    finalTranscriptRef.current = ''     
-    if (result && onFinalTranscript) {
-      onFinalTranscript(result)
-    }
-    return result
-  }, [clearSilenceTimer, onFinalTranscript])
+    const text = finalRef.current.trim()
+    finalRef.current = ''
+    if (text) onDone?.(text)
+    return text
+  }, [clearTimer, onDone])
 
   const start = useCallback(() => {
     if (!isSupported) return
 
-    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition
-    const recognition = new SpeechRecognitionAPI()
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.lang = lang
+    const API = window.SpeechRecognition || window.webkitSpeechRecognition
+    const recog = new API()
+    recog.continuous = true
+    recog.interimResults = true
+    recog.lang = lang
 
-    recognitionRef.current = recognition
-    finalTranscriptRef.current = ''
-    manualStopRef.current = false
+    recogRef.current = recog
+    finalRef.current = ''
+    manualStop.current = false
     setTranscript('')
     setIsListening(true)
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recog.onresult = (e: SpeechRecognitionEvent) => {
       let interim = ''
       let final = ''
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const text = event.results[i][0].transcript
-        if (event.results[i].isFinal) {
-          final += text
-        } else {
-          interim += text
-        }
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript
+        if (e.results[i].isFinal) final += t
+        else interim += t
       }
 
-      if (final) {
-        finalTranscriptRef.current += final + ' '
-      }
+      if (final) finalRef.current += final + ' '
+      setTranscript((finalRef.current + interim).trim())
 
-      setTranscript((finalTranscriptRef.current + interim).trim())
-
-      //  Détection silence 2s 
-      // Chaque fois qu'on reçoit un résultat (parole détectée), on remet le timer à zéro
-      if (finalTranscriptRef.current.trim() || interim.trim()) {
-        clearSilenceTimer()
-        silenceTimerRef.current = setTimeout(() => {
-          // 2s sans nouvelle parole alors soumettre automatiquement
-          if (!manualStopRef.current) {
-            submitTranscript()
-          }
+      // reset du timer a chaque mot detecte, soumet apres 2s de silence
+      if (finalRef.current.trim() || interim.trim()) {
+        clearTimer()
+        silenceTimer.current = setTimeout(() => {
+          if (!manualStop.current) submit()
         }, 2000)
       }
     }
 
-    recognition.onerror = (event: SpeechRecognitionErrorEventCompat) => {
-      if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        console.error('[STT] Error:', event.error)
+    recog.onerror = (e: SpeechRecognitionErrorEvent) => {
+      if (e.error !== 'no-speech' && e.error !== 'aborted') {
+        console.error('STT error:', e.error)
       }
-      clearSilenceTimer()
+      clearTimer()
       setIsListening(false)
     }
 
-    recognition.onend = () => {
-      // onend se déclenche après stop() - si ce n'est PAS un stop manuel,
-      // c'est la fin naturelle (silence long) alors soumettre
-      if (!manualStopRef.current && finalTranscriptRef.current.trim()) {
-        const result = finalTranscriptRef.current.trim()
-        finalTranscriptRef.current = ''
-        onFinalTranscript?.(result)
+    recog.onend = () => {
+      // si c'est pas un stop manuel et qu'il reste du texte, on soumet
+      if (!manualStop.current && finalRef.current.trim()) {
+        const text = finalRef.current.trim()
+        finalRef.current = ''
+        onDone?.(text)
       }
-      clearSilenceTimer()
+      clearTimer()
       setIsListening(false)
     }
 
-    recognition.start()
-  }, [isSupported, lang, clearSilenceTimer, submitTranscript, onFinalTranscript])
+    recog.start()
+  }, [isSupported, lang, clearTimer, submit, onDone])
 
-  // stop() manuel - bouton "Envoyer maintenant"
   const stop = useCallback((): string => {
-    manualStopRef.current = true   //  marque stop manuel pour éviter double soumission dans onend
-    return submitTranscript()
-  }, [submitTranscript])
+    manualStop.current = true
+    return submit()
+  }, [submit])
 
   return { start, stop, transcript, isListening, isSupported }
 }
